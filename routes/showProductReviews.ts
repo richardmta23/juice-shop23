@@ -28,12 +28,23 @@ global.sleep = (time: number) => {
 export function showProductReviews () {
   return (req: Request, res: Response, next: NextFunction) => {
     // Truncate id to avoid unintentional RCE
-    const id = !utils.isChallengeEnabled(challenges.noSqlCommandChallenge) ? Number(req.params.id) : utils.trunc(req.params.id, 40)
+    const challengeEnabled = utils.isChallengeEnabled(challenges.noSqlCommandChallenge)
+    // Use strict number casting if challenge is not enabled, otherwise safe string truncation
+    const id = challengeEnabled ? utils.trunc(req.params.id, 40) : Number(req.params.id)
 
     // Measure how long the query takes, to check if there was a nosql dos attack
     const t0 = new Date().getTime()
 
-    db.reviewsCollection.find({ $where: 'this.product == ' + id }).then((reviews: Review[]) => {
+    let query
+    if (challengeEnabled) {
+      // Compare as string, don't allow code injection (still allow DoS via sleep, etc.)
+      query = { product: id }
+    } else {
+      // Compare as number
+      query = { product: id }
+    }
+
+    db.reviewsCollection.find(query).then((reviews: Review[]) => {
       const t1 = new Date().getTime()
       challengeUtils.solveIf(challenges.noSqlCommandChallenge, () => { return (t1 - t0) > 2000 })
       const user = security.authenticatedUsers.from(req)
